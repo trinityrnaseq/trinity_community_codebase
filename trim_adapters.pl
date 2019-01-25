@@ -30,6 +30,11 @@ my $help_string = <<_HELP_STRING_;
 #   -outranges    Required if -inranges is used, may be used without -inranges.
 #   -ranges_fmt   Printf string for header fields: name start stop original_length remainder.  
 #                 Default: '%-40s %6d %6d %6d %s'.  (No line feed character should be used!)
+#   -relaxed      Normally the alignment found must extend to within the a small distance of 
+#                 the end of the mRNA.  When this is set if the aligment is within 10bp of the
+#                 3' end of the adapter an implied 5' end of the alignment, made by offsetting 
+#                 by the adapter length is also tested.  This will find adapters in inaccurate
+#                 mRNA sequence, where the sequence has been somewhat mangled.
 #   -help         Print help
 #
 # Example trim runs:
@@ -97,6 +102,7 @@ _HELP_STRING_
 # Copyright (c) 2018, David Mathog & Caltech
 #  All rights reserved.
 #
+# 2019-01-24 updated,  added -relaxed, more conservative trim (by a few bases, in some cases)
 # 2019-01-22 updated,  More robust handling of different blast database formats, support for "ranges" to keep
 #     track of changes.
 # 2018-10-04 initial coding
@@ -125,6 +131,7 @@ my $minlen=0;
 my $drop_nopep;
 my %match_set;
 my $ranges_fmt;
+my $relaxed=0;
 
 #globals
 my %tr_original_slen;  # length of the transcript as made by Trinity
@@ -138,7 +145,8 @@ my $process_type;
 my $USE_NORMAL=0;
 my $USE_PEP=1;
 my $USE_RANGES=2;
-my $close_end=15;   #one end of alignment with the adapter must be within 15 bp of a transcript end.
+my $close_mRNA_end=15;   #one end of alignment with the adapter must be within 15 bp of a transcript end.
+my $close_adapter_end=10; #the alignment extends to 10 or less bp of 3' end of adapter, used with -relaxed
 my $retained_ranges_comments="";  
 
 GetOptions ("infile=s"     => \$infile,
@@ -150,6 +158,7 @@ GetOptions ("infile=s"     => \$infile,
             "adapters=s"   => \$adapters,
             "ranges_fmt=s" => \$ranges_fmt,
             "minlen=i"     => \$minlen,
+            "relaxed"      => \$relaxed,
             "drop_nopep"   => \$drop_nopep,
             "help"         => \$help,
             );
@@ -220,6 +229,7 @@ sub emit_parameters_summary{
       $process_type=$USE_NORMAL;
    }
    print " minlen: $minlen";
+   print " relaxed: $relaxed";
    print " drop_nopep: " . (defined($drop_nopep) ? "yes": "no");
    print " ranges_fmt: $ranges_fmt";
    print "\n";
@@ -349,19 +359,31 @@ sub process_scan_file{
       #
       my $klen = $match_set{$key};
       my $current_seqlen = $tr_current_stop{$tname} - $tr_current_start{$tname} + 1;
+      my $dir = ((($te-$ts)*($ve-$vs) < 0) ? 1 : 0);  # alignment direction, 0 is forward, 1 is reversed
+      if($relaxed && ($klen - max($ve,$vs) + 1 <= $close_adapter_end)){
+         #extrapolate to new $ts, $te, as if the aligmment was perfect rather than just the smaller part from the scan
+         if($dir){
+            $ts = $ts - ($klen - $vs);
+            $te = min($current_seqlen, $ts + $klen - 1);
+         }
+         else {
+            $te = $te + ($klen - $ve);
+            $ts = max(1,$te - $klen + 1);
+         }
+      }
       if(defined($klen)){
-         if($ts<$close_end){ #end by position on transcript
+         if($ts<$close_mRNA_end){ #end by position on transcript
             assign_lo($tname, max($ts,$te)+1); #coord is first base to KEEP, in 1->N
             $cut_lo_end++;
          }
-         elsif($current_seqlen - $te < $close_end){ #end by position on transcript (or remaining part of transcript)
+         elsif($current_seqlen - $te < $close_mRNA_end){ #end by position on transcript (or remaining part of transcript)
             assign_hi($tname, min($ts,$te)-1); #coord is last base to KEEP, in 1->N
             $cut_hi_end++;
          }
          elsif($klen - 2 <= max($ve,$vs)){
 #print "DEBUG internal klen $klen vs $vs ve $ve ts $ts te $te seqlen $current_seqlen\n";
             #somewhere internal, decide which side to trim by the orientation of the adapter
-            if(($te-$ts)*($ve-$vs) < 0){
+            if($dir){
                assign_hi($tname, min($ts,$te)-1); #coord is last base to KEEP, in 1->N
                $cut_hi_mid++;
             }
