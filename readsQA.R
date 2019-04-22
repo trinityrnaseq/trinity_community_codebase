@@ -1,5 +1,16 @@
 #!/usr/bin/env Rscript
-#Check if the packages required are alrady installed, and if it  is not, install them 
+# MAKING READS QUALITY ASSESSMENT #############################################
+# This script makes the quality assessment of HTS reads using fastQC throgh   #
+# fastqcr R package.                                                          #
+#                                                                             #
+# Usage info:                                                                 #
+# Rscript readsQA.R <reads dir> <output dir> [num threads]                    #
+#    - Reads dir: Path to reads directory.                                    #
+#    - Output dir: Path to where store the output                             #
+#    - Num threads: Number of threads (Def. 4)                                #
+###############################################################################
+
+#Check if the packages required are alrady installed or install them 
 if (!require(fastqcr)) {
    install.packages("fastqcr")
    library(fastqcr)
@@ -28,7 +39,7 @@ if (length(args) < 2) {
 }
 
 #Read the path to each reads file
-readsPath <- list.files(path = readsDir, pattern = ".fastq.gz$", full.names = TRUE)
+readsPath <- list.files(path = readsDir, full.names = TRUE)
 
 #Run fastqc for each reads file
 fastQCfun     <- function(readsFile) {
@@ -36,11 +47,18 @@ fastQCfun     <- function(readsFile) {
    system(command = paste(runCommand, outputDir, readsFile))
 }
 
-mclapply(X = readsPath, FUN = fastQCfun, mc.cores = nCoresRun)
+mclapply(X        = readsPath,
+	 FUN      = fastQCfun,
+	 mc.cores = nCoresRun)
 
 #Generate a summary of quality assestment
 qcResult  <- qc_aggregate(qc.dir = outputDir)
 qcSummary <- summary(qcResult)
 
 #Export the final summary
-write.table(x = qcSummary, file = paste0(outputDir, "/", "summary.tsv"), sep = "\t", col.names = TRUE, row.names = TRUE, append = FALSE)
+write.table(x         = qcSummary,
+	    file      = paste0(outputDir, "/", "summary.tsv"),
+	    sep       = "\t",
+	    col.names = TRUE,
+	    row.names = TRUE,
+	    append    = FALSE)
