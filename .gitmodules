@@ -1,0 +1,3 @@
+[submodule "trinity_community_codebase.wiki"]
+	path = trinity_community_codebase.wiki
+	url = https://github.com/trinityrnaseq/trinity_community_codebase.wiki.git
